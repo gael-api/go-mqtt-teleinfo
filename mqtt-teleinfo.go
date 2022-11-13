@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	//"strconv"
+	"time"
 	"os"
 	"os/signal"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/tarm/serial"
 
 	"github.com/yosssi/gmq/mqtt"
@@ -16,6 +18,7 @@ import (
 
 var (
 	mqttURL        string
+	mqttSleep      time.Duration
 	mqttLogin      string
 	mqttPassword   string
 	teleinfoDevice string
@@ -108,7 +111,10 @@ func readFrames(port *serial.Port, frameChan chan<- *frame) {
 			log.Printf("Error reading Teleinfo frame: %s\n", err)
 			continue
 		}
+		log.Debug(fmt.Sprintf("readFrames \"%s\"\n", frame))
 		frameChan <- frame
+		log.Debug(fmt.Sprintf("readFrames : sleep for %s\n", mqttSleep))
+		time.Sleep(mqttSleep)
 	}
 }
 
@@ -137,6 +143,7 @@ func initMqtt() {
 // send a message
 func publish(topic, message string) error {
 	// Publish a message.
+	log.Debug(fmt.Sprintf("Publish \"%12s\" on Topic \"%20s\"\n", message, topic))
 	err := cli.Publish(&client.PublishOptions{
 		QoS:       mqtt.QoS0,
 		TopicName: []byte(topic),
@@ -155,6 +162,7 @@ func main() {
 	if os.Getenv("DEBUG") != "" {
 		log.SetLevel(log.DebugLevel)
 	}
+	mqttSleep, _ =  time.ParseDuration(os.Getenv("MQTT_SLEEP"))
 	mqttURL = os.Getenv("MQTT_URL")
 	mqttLogin = os.Getenv("MQTT_LOGIN")
 	mqttPassword = os.Getenv("MQTT_PASSWORD")
@@ -171,16 +179,19 @@ func main() {
 		Parity:   serial.ParityEven,
 		StopBits: serial.Stop1,
 	}
+
 	port, err := serial.OpenPort(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Info("Serial.OpenPort ... OK")
 	defer port.Close()
 
 	frameChan := make(chan *frame)
 
 	// Read Teleinfo frames and send them into framesChan
 	go readFrames(port, frameChan)
+	log.Info("readFrames ... OK")
 
 	// Enqueue teleinfo.Frame into a fixed-length ring buffer
 	go func() {
